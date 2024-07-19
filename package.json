@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.616.0",
+    "aws-sdk": "^2.1659.0",
+    "cors": "^2.8.5",
+    "dns": "^0.2.2",
+    "express": "^4.19.2",
+    "nodemailer": "^6.9.14",
+    "smtp-connection": "^4.0.2",
+    "validator": "^13.12.0"
+  }
+}
