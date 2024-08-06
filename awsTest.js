@@ -39,10 +39,10 @@ const app = express();
 // Enable CORS for all routes
 app.use(cors());
 
-app.get('/download-file', async (req, res) => {
+app.get('/api/download-file', async (req, res) => {
     const bucketName = 'solarwebsite-documents';
-    const fileKey = req.query.file;
-      console.log(fileKey);
+    const fileKey = decodeURIComponent(req.query.file); // Decode URI component
+    console.log(`Requested file key: ${fileKey}`);
     if (!fileKey) {
         res.status(400).send('File key is required');
         return;
