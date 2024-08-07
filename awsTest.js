@@ -1,36 +1,50 @@
 const { S3Client, GetObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 const s3 = new S3Client({ region: 'ap-south-1' });
+const cacheDir = path.join(__dirname, 'cache'); // Directory to store cached files
 
-async function fetchFileFromS3(bucketName, fileKey, res) {
+// Ensure cache directory exists
+if (!fs.existsSync(cacheDir)) {
+    fs.mkdirSync(cacheDir);
+}
+
+async function fetchFileFromS3(bucketName, fileKey) {
     const headParams = {
         Bucket: bucketName,
         Key: fileKey
     };
 
     try {
-        // Log the file key to debug issues
-        console.log(`Fetching file from S3: ${fileKey}`);
-
-        // Get the file's metadata first to set the appropriate headers
+        // Get the file's metadata
         const headData = await s3.send(new HeadObjectCommand(headParams));
-        res.setHeader('Content-Disposition', `attachment; filename="${fileKey.split('/').pop()}"`);
-        res.setHeader('Content-Length', headData.ContentLength);
-        res.setHeader('Content-Type', headData.ContentType || 'application/octet-stream');
+        const filePath = path.join(cacheDir, fileKey.replace(/\//g, '_')); // Replace '/' with '_' to avoid directory issues
 
-        // Stream the file from S3 to the response
+        // Check if the file is already cached
+        if (fs.existsSync(filePath)) {
+            return filePath; // Return cached file path
+        }
+
+        // Download the file from S3 and save it locally
         const getObjectParams = {
             Bucket: bucketName,
             Key: fileKey
         };
 
         const data = await s3.send(new GetObjectCommand(getObjectParams));
-        data.Body.pipe(res);
+        const writeStream = fs.createWriteStream(filePath);
+        data.Body.pipe(writeStream);
+
+        return new Promise((resolve, reject) => {
+            writeStream.on('finish', () => resolve(filePath));
+            writeStream.on('error', reject);
+        });
     } catch (err) {
         console.error(`Error fetching ${fileKey} from S3: `, err);
-        res.status(500).send('Failed to fetch file from S3');
+        throw err;
     }
 }
 
@@ -48,7 +62,19 @@ app.get('/api/download-file', async (req, res) => {
         return;
     }
 
-    await fetchFileFromS3(bucketName, fileKey, res);
+    try {
+        const filePath = await fetchFileFromS3(bucketName, fileKey);
+
+        // Serve the cached file
+        res.sendFile(filePath, err => {
+            if (err) {
+                console.error(`Error sending file: ${err}`);
+                res.status(500).send('Failed to send file');
+            }
+        });
+    } catch (err) {
+        res.status(500).send('Failed to fetch file');
+    }
 });
 
 const port = 3000;
