@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const stream = require('stream');
 
 const s3 = new S3Client({ region: 'ap-south-1' });
 const cacheDir = path.join(__dirname, 'cache'); // Directory to store cached files
@@ -12,6 +13,7 @@ if (!fs.existsSync(cacheDir)) {
     fs.mkdirSync(cacheDir);
 }
 
+// Fetch the file from S3 and cache it locally
 async function fetchFileFromS3(bucketName, fileKey) {
     const headParams = {
         Bucket: bucketName,
@@ -36,11 +38,12 @@ async function fetchFileFromS3(bucketName, fileKey) {
 
         const data = await s3.send(new GetObjectCommand(getObjectParams));
         const writeStream = fs.createWriteStream(filePath);
-        data.Body.pipe(writeStream);
 
         return new Promise((resolve, reject) => {
+            data.Body.pipe(writeStream);
+
             writeStream.on('finish', () => resolve(filePath));
-            writeStream.on('error', reject);
+            writeStream.on('error', (err) => reject(err));
         });
     } catch (err) {
         console.error(`Error fetching ${fileKey} from S3: `, err);
@@ -57,6 +60,7 @@ app.get('/api/download-file', async (req, res) => {
     const bucketName = 'solarwebsite-documents';
     const fileKey = decodeURIComponent(req.query.file); // Decode URI component
     console.log(`Requested file key: ${fileKey}`);
+    
     if (!fileKey) {
         res.status(400).send('File key is required');
         return;
@@ -66,14 +70,18 @@ app.get('/api/download-file', async (req, res) => {
         const filePath = await fetchFileFromS3(bucketName, fileKey);
 
         // Serve the cached file
-        res.sendFile(filePath, err => {
+        res.sendFile(filePath, (err) => {
             if (err) {
                 console.error(`Error sending file: ${err}`);
-                res.status(500).send('Failed to send file');
+                if (!res.headersSent) {
+                    res.status(500).send('Failed to send file');
+                }
             }
         });
     } catch (err) {
-        res.status(500).send('Failed to fetch file');
+        if (!res.headersSent) {
+            res.status(500).send('Failed to fetch file');
+        }
     }
 });
 
